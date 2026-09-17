@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from .. import security
 from ..deps import get_current_user, get_db
-from ..schemas import ApiKeyOut, ApiKeySetIn
+from ..schemas import ApiKeyOut, ApiKeySetIn, CredentialsOut
 
 router = APIRouter(prefix="/api/keys", tags=["keys"])
 
@@ -80,6 +80,18 @@ def delete_key(
     conn.commit()
     if cur.rowcount == 0:
         raise HTTPException(status_code=404, detail="密钥不存在")
+
+
+@router.get("/{provider}/credentials", response_model=CredentialsOut)
+def key_credentials(
+    provider: str,
+    user: dict = Depends(get_current_user),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> CredentialsOut:
+    cred = get_credentials(conn, user["id"], provider)
+    if cred is None:
+        raise HTTPException(status_code=404, detail="密钥未设置")
+    return CredentialsOut(**cred)
 
 
 def get_credentials(

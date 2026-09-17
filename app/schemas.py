@@ -58,8 +58,15 @@ class ApiKeyOut(BaseModel):
     created_at: str
 
 
-class SendIn(BaseModel):
-    message: str = Field(min_length=1, max_length=8000)
+class TurnIn(BaseModel):
+    user_message: str = Field(min_length=1, max_length=8000)
+    assistant_message: str = Field(min_length=1, max_length=32000)
+
+
+class CredentialsOut(BaseModel):
+    base_url: str = ""
+    model: str = ""
+    key: str = ""
 
 
 class MessageOut(BaseModel):

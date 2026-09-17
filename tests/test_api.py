@@ -187,41 +187,24 @@ def test_memory_persona_ownership(client):
 
 # ---- 聊天 ----
 
-def test_chat_send_and_history(client, monkeypatch):
-    from app.routers import chat as chat_mod
-
+def test_chat_append_and_history(client):
     token = _register(client).json()["access_token"]
     h = _auth(token)
     pid = client.post(
         "/api/personas", data={"name": "P", "system_prompt": "你是助手"}, headers=h
     ).json()["id"]
 
-    # 未配置 LLM → 400
-    assert client.post(f"/api/chat/{pid}/send", json={"message": "你好"}, headers=h).status_code == 400
-
-    # 配置 LLM
-    client.put(
-        "/api/keys/llm",
-        json={"key": "sk-test", "base_url": "https://api.deepseek.com/v1", "model": "deepseek-chat"},
+    r = client.post(
+        f"/api/chat/{pid}/append",
+        json={"user_message": "你好", "assistant_message": "你好呀"},
         headers=h,
     )
-
-    async def fake_llm(cred, messages):
-        assert messages[0]["role"] == "system"
-        assert messages[-1]["role"] == "user"
-        assert messages[-1]["content"] == "你好"
-        return "你好呀"
-
-    monkeypatch.setattr(chat_mod, "_call_llm", fake_llm)
-
-    r = client.post(f"/api/chat/{pid}/send", json={"message": "你好"}, headers=h)
-    assert r.status_code == 200
-    assert r.json()["role"] == "assistant"
-    assert r.json()["content"] == "你好呀"
+    assert r.status_code == 204
 
     hist = client.get(f"/api/chat/{pid}/history", headers=h).json()
     assert [m["role"] for m in hist] == ["user", "assistant"]
     assert hist[0]["content"] == "你好"
+    assert hist[1]["content"] == "你好呀"
 
 
 def test_chat_history_isolation(client):
@@ -232,9 +215,18 @@ def test_chat_history_isolation(client):
     assert client.get(f"/api/chat/{pid}/history", headers=_auth(t2)).status_code == 404
 
 
-def test_llm_url_normalization():
-    from app.routers.chat import _llm_url
-
-    assert _llm_url("http://x/mgate/v1") == "http://x/mgate/v1/chat/completions"
-    assert _llm_url("http://x/mgate/v1/") == "http://x/mgate/v1/chat/completions"
-    assert _llm_url("http://x/mgate/v1/chat/completions") == "http://x/mgate/v1/chat/completions"
+def test_key_credentials(client):
+    token = _register(client).json()["access_token"]
+    h = _auth(token)
+    # 未设置 → 404
+    assert client.get("/api/keys/llm/credentials", headers=h).status_code == 404
+    # 设置后 → 返回明文
+    client.put(
+        "/api/keys/llm",
+        json={"key": "sk-abcdef", "base_url": "https://api.deepseek.com/v1", "model": "deepseek-chat"},
+        headers=h,
+    )
+    r = client.get("/api/keys/llm/credentials", headers=h)
+    assert r.status_code == 200
+    assert r.json()["key"] == "sk-abcdef"
+    assert r.json()["model"] == "deepseek-chat"
