@@ -53,7 +53,7 @@ def test_persona_crud(client):
 
     r = client.post(
         "/api/personas",
-        json={"name": "塔菲", "label": "塔菲", "system_prompt": "你是主播", "is_default": True},
+        data={"name": "塔菲", "label": "塔菲", "system_prompt": "你是主播", "is_default": "true"},
         headers=h,
     )
     assert r.status_code == 201
@@ -77,10 +77,9 @@ def test_persona_crud(client):
 def test_persona_default_uniqueness(client):
     token = _register(client).json()["access_token"]
     h = _auth(token)
-    a = client.post("/api/personas", json={"name": "A", "is_default": True}, headers=h).json()
-    b = client.post("/api/personas", json={"name": "B", "is_default": True}, headers=h).json()
-    lst = client.get("/api/personas", headers=h).json()
-    defaults = [p for p in lst if p["is_default"]]
+    a = client.post("/api/personas", data={"name": "A", "is_default": "true"}, headers=h).json()
+    b = client.post("/api/personas", data={"name": "B", "is_default": "true"}, headers=h).json()
+    defaults = [p for p in client.get("/api/personas", headers=h).json() if p["is_default"]]
     assert len(defaults) == 1
     assert defaults[0]["id"] == b["id"]
 
@@ -88,9 +87,38 @@ def test_persona_default_uniqueness(client):
 def test_persona_isolation(client):
     t1 = _register(client, "alice").json()["access_token"]
     t2 = _register(client, "bob").json()["access_token"]
-    pid = client.post("/api/personas", json={"name": "A"}, headers=_auth(t1)).json()["id"]
+    pid = client.post("/api/personas", data={"name": "A"}, headers=_auth(t1)).json()["id"]
     assert client.get(f"/api/personas/{pid}", headers=_auth(t2)).status_code == 404
     assert client.delete(f"/api/personas/{pid}", headers=_auth(t2)).status_code == 404
+
+
+def test_persona_upload_image_and_voice(client):
+    token = _register(client).json()["access_token"]
+    h = _auth(token)
+    r = client.post(
+        "/api/personas",
+        data={"name": "塔菲", "system_prompt": "x"},
+        files={
+            "image": ("ref.png", b"\x89PNG\r\n\x1a\n" + b"0" * 16, "image/png"),
+            "voice": ("ref.wav", b"RIFF" + b"0" * 16, "audio/wav"),
+        },
+        headers=h,
+    )
+    assert r.status_code == 201
+    pid = r.json()["id"]
+    assert r.json()["has_image"] is True
+    assert r.json()["has_voice"] is True
+
+    img = client.get(f"/api/personas/{pid}/image", headers=h)
+    assert img.status_code == 200
+    assert img.content.startswith(b"\x89PNG")
+
+    voice = client.get(f"/api/personas/{pid}/voice", headers=h)
+    assert voice.status_code == 200
+    assert voice.content.startswith(b"RIFF")
+
+    # 未登录不能拉肖像
+    assert client.get(f"/api/personas/{pid}/image").status_code == 401
 
 
 # ---- API 密钥 ----
@@ -117,7 +145,7 @@ def test_api_key_masked_and_encrypted(client):
 def test_memory_add_search_delete(client):
     token = _register(client).json()["access_token"]
     h = _auth(token)
-    pid = client.post("/api/personas", json={"name": "P"}, headers=h).json()["id"]
+    pid = client.post("/api/personas", data={"name": "P"}, headers=h).json()["id"]
 
     a = client.post("/api/memories", json={"text": "用户在减脂", "persona_id": pid}, headers=h)
     assert a.status_code == 201
@@ -136,6 +164,6 @@ def test_memory_add_search_delete(client):
 def test_memory_persona_ownership(client):
     t1 = _register(client, "alice").json()["access_token"]
     t2 = _register(client, "bob").json()["access_token"]
-    pid = client.post("/api/personas", json={"name": "P"}, headers=_auth(t1)).json()["id"]
+    pid = client.post("/api/personas", data={"name": "P"}, headers=_auth(t1)).json()["id"]
     r = client.post("/api/memories", json={"text": "x", "persona_id": pid}, headers=_auth(t2))
     assert r.status_code == 404

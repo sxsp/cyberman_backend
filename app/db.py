@@ -54,7 +54,7 @@ CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id);
 def connect(db_path: Path | None = None) -> sqlite3.Connection:
     path = db_path or config.db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
+    conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA journal_mode=WAL")

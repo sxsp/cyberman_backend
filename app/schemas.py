@@ -29,8 +29,6 @@ class PersonaIn(BaseModel):
     label: str = Field(default="", max_length=128)
     system_prompt: str = ""
     ref_text: str = ""
-    ref_wav: str = ""
-    ref_image: str = ""
     is_default: bool = False
 
 
@@ -40,9 +38,9 @@ class PersonaOut(BaseModel):
     label: str
     system_prompt: str
     ref_text: str
-    ref_wav: str
-    ref_image: str
     is_default: bool
+    has_image: bool = False
+    has_voice: bool = False
 
 
 class ApiKeyIn(BaseModel):

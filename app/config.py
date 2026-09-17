@@ -38,6 +38,11 @@ def db_path() -> Path:
     return _resolve(os.environ.get("SERVER1_DB_PATH", str(data_dir() / "server1.db")))
 
 
+def uploads_dir() -> Path:
+    """人设肖像/语音等上传文件的存储根目录。"""
+    return data_dir() / "uploads"
+
+
 def token_expire_minutes() -> int:
     return int(os.environ.get("SERVER1_TOKEN_EXPIRE_MINUTES", str(60 * 24 * 7)))
 
