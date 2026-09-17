@@ -46,6 +46,7 @@ class PersonaOut(BaseModel):
 class ApiKeySetIn(BaseModel):
     key: str = Field(min_length=1, max_length=512)
     base_url: str = Field(default="", max_length=512)
+    model: str = Field(default="", max_length=128)
 
 
 class ApiKeyOut(BaseModel):
@@ -53,6 +54,18 @@ class ApiKeyOut(BaseModel):
     provider: str
     key_hint: str
     base_url: str = ""
+    model: str = ""
+    created_at: str
+
+
+class SendIn(BaseModel):
+    message: str = Field(min_length=1, max_length=8000)
+
+
+class MessageOut(BaseModel):
+    id: int
+    role: str
+    content: str
     created_at: str
 
 

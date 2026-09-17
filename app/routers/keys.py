@@ -1,7 +1,7 @@
 """API 密钥：固定槽位（按 provider 唯一），Fernet 加密落库，列表只返回脱敏 hint。
 
-明文只在「注入 Server 2」时经 get_plaintext_key 内部解密使用，无对外明文接口。
-每个 provider（如 deepseek / kimi）只保留一条：PUT 覆盖更新，DELETE 按 provider 清除。
+明文只在「注入推理服务」时经 get_credentials 内部解密使用，无对外明文接口。
+每个 provider（如 llm / kimi）只保留一条：PUT 覆盖更新，DELETE 按 provider 清除。
 """
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ def _to_out(row: sqlite3.Row) -> ApiKeyOut:
         provider=row["provider"],
         key_hint=row["key_hint"],
         base_url=row["base_url"],
+        model=row["model"],
         created_at=row["created_at"],
     )
 
@@ -32,7 +33,7 @@ def list_keys(
     conn: sqlite3.Connection = Depends(get_db),
 ) -> list[ApiKeyOut]:
     rows = conn.execute(
-        "SELECT id, provider, key_hint, base_url, created_at FROM api_keys "
+        "SELECT id, provider, key_hint, base_url, model, created_at FROM api_keys "
         "WHERE user_id = ? ORDER BY id",
         (user["id"],),
     ).fetchall()
@@ -47,17 +48,20 @@ def upsert_key(
     conn: sqlite3.Connection = Depends(get_db),
 ) -> ApiKeyOut:
     conn.execute(
-        "INSERT INTO api_keys (user_id, provider, base_url, key_encrypted, key_hint) "
-        "VALUES (?, ?, ?, ?, ?) "
+        "INSERT INTO api_keys (user_id, provider, base_url, model, key_encrypted, key_hint) "
+        "VALUES (?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(user_id, provider) DO UPDATE SET "
-        "base_url = excluded.base_url, "
+        "base_url = excluded.base_url, model = excluded.model, "
         "key_encrypted = excluded.key_encrypted, key_hint = excluded.key_hint, "
         "created_at = datetime('now')",
-        (user["id"], provider, body.base_url, security.encrypt_key(body.key), security.key_hint(body.key)),
+        (
+            user["id"], provider, body.base_url, body.model,
+            security.encrypt_key(body.key), security.key_hint(body.key),
+        ),
     )
     conn.commit()
     row = conn.execute(
-        "SELECT id, provider, key_hint, base_url, created_at FROM api_keys "
+        "SELECT id, provider, key_hint, base_url, model, created_at FROM api_keys "
         "WHERE user_id = ? AND provider = ?",
         (user["id"], provider),
     ).fetchone()
@@ -78,12 +82,19 @@ def delete_key(
         raise HTTPException(status_code=404, detail="密钥不存在")
 
 
-def get_plaintext_key(conn: sqlite3.Connection, user_id: int, provider: str) -> str | None:
-    """内部服务函数：取某 provider 的密钥明文（供 Server 2 注入，无路由暴露）。"""
+def get_credentials(
+    conn: sqlite3.Connection, user_id: int, provider: str
+) -> dict | None:
+    """内部服务函数：取某 provider 的 {base_url, model, key 明文}（供 LLM 调用）。"""
     row = conn.execute(
-        "SELECT key_encrypted FROM api_keys WHERE user_id = ? AND provider = ?",
+        "SELECT base_url, model, key_encrypted FROM api_keys "
+        "WHERE user_id = ? AND provider = ?",
         (user_id, provider),
     ).fetchone()
     if row is None:
         return None
-    return security.decrypt_key(row["key_encrypted"])
+    return {
+        "base_url": row["base_url"],
+        "model": row["model"],
+        "key": security.decrypt_key(row["key_encrypted"]),
+    }

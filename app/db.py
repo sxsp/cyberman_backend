@@ -34,12 +34,32 @@ CREATE TABLE IF NOT EXISTS api_keys (
     user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     provider      TEXT NOT NULL,
     base_url      TEXT NOT NULL DEFAULT '',
+    model         TEXT NOT NULL DEFAULT '',
     key_encrypted TEXT NOT NULL,
     key_hint      TEXT NOT NULL,
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_user_provider ON api_keys(user_id, provider);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    persona_id INTEGER NOT NULL REFERENCES personas(id) ON DELETE CASCADE,
+    role       TEXT NOT NULL,
+    content    TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_messages_user_persona ON messages(user_id, persona_id);
+
+CREATE TABLE IF NOT EXISTS conversation_summaries (
+    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    persona_id      INTEGER NOT NULL REFERENCES personas(id) ON DELETE CASCADE,
+    summary         TEXT NOT NULL DEFAULT '',
+    last_message_id INTEGER NOT NULL DEFAULT 0,
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, persona_id)
+);
 
 CREATE TABLE IF NOT EXISTS memories (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,12 +84,14 @@ def connect(db_path: Path | None = None) -> sqlite3.Connection:
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    """幂等迁移：老库补 api_keys.base_url 列。"""
+    """幂等迁移：老库补 api_keys.base_url / model 列。"""
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(api_keys)").fetchall()}
     if "base_url" not in cols:
         conn.execute(
             "ALTER TABLE api_keys ADD COLUMN base_url TEXT NOT NULL DEFAULT ''"
         )
+    if "model" not in cols:
+        conn.execute("ALTER TABLE api_keys ADD COLUMN model TEXT NOT NULL DEFAULT ''")
 
 
 def init_db(db_path: Path | None = None) -> None:

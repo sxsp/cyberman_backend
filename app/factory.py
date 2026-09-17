@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import db
-from .routers import auth, keys, memories, personas
+from .routers import auth, chat, keys, memories, personas
 
 
 def create_app() -> FastAPI:
@@ -22,6 +22,7 @@ def create_app() -> FastAPI:
     app.include_router(personas.router)
     app.include_router(keys.router)
     app.include_router(memories.router)
+    app.include_router(chat.router)
 
     @app.get("/healthz")
     def healthz() -> dict:
