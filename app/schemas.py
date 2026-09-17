@@ -43,15 +43,16 @@ class PersonaOut(BaseModel):
     has_voice: bool = False
 
 
-class ApiKeyIn(BaseModel):
-    provider: str = Field(min_length=1, max_length=64)
+class ApiKeySetIn(BaseModel):
     key: str = Field(min_length=1, max_length=512)
+    base_url: str = Field(default="", max_length=512)
 
 
 class ApiKeyOut(BaseModel):
     id: int
     provider: str
     key_hint: str
+    base_url: str = ""
     created_at: str
 
 

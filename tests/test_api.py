@@ -123,13 +123,20 @@ def test_persona_upload_image_and_voice(client):
 
 # ---- API 密钥 ----
 
-def test_api_key_masked_and_encrypted(client):
+def test_api_key_fixed_slot_upsert(client):
     token = _register(client).json()["access_token"]
     h = _auth(token)
     secret = "sk-abcdef1234567890"
-    r = client.post("/api/keys", json={"provider": "deepseek", "key": secret}, headers=h)
-    assert r.status_code == 201
+    # 设置（含 base_url）
+    r = client.put(
+        "/api/keys/llm",
+        json={"key": secret, "base_url": "https://api.deepseek.com/v1"},
+        headers=h,
+    )
+    assert r.status_code == 200
+    assert r.json()["provider"] == "llm"
     assert r.json()["key_hint"] == "sk-a****7890"
+    assert r.json()["base_url"] == "https://api.deepseek.com/v1"
     assert secret not in str(r.json())
 
     lst = client.get("/api/keys", headers=h).json()
@@ -137,7 +144,16 @@ def test_api_key_masked_and_encrypted(client):
     assert "key_encrypted" not in lst[0]
     assert secret not in str(lst)
 
-    assert client.delete(f"/api/keys/{r.json()['id']}", headers=h).status_code == 204
+    # 同 provider 覆盖，不新增
+    client.put("/api/keys/llm", json={"key": "sk-new1234567890", "base_url": "https://x"}, headers=h)
+    lst2 = client.get("/api/keys", headers=h).json()
+    assert len(lst2) == 1
+    assert lst2[0]["key_hint"] == "sk-n****7890"
+    assert lst2[0]["base_url"] == "https://x"
+
+    # 清除
+    assert client.delete("/api/keys/llm", headers=h).status_code == 204
+    assert client.get("/api/keys", headers=h).json() == []
 
 
 # ---- 记忆 ----

@@ -1,6 +1,7 @@
-"""API 密钥：Fernet 加密落库，列表只返回脱敏 hint，绝不返回明文。
+"""API 密钥：固定槽位（按 provider 唯一），Fernet 加密落库，列表只返回脱敏 hint。
 
-明文只在未来「注入 Server 2」时经 get_plaintext_key 内部解密使用，无对外明文接口。
+明文只在「注入 Server 2」时经 get_plaintext_key 内部解密使用，无对外明文接口。
+每个 provider（如 deepseek / kimi）只保留一条：PUT 覆盖更新，DELETE 按 provider 清除。
 """
 from __future__ import annotations
 
@@ -10,9 +11,19 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from .. import security
 from ..deps import get_current_user, get_db
-from ..schemas import ApiKeyIn, ApiKeyOut
+from ..schemas import ApiKeyOut, ApiKeySetIn
 
 router = APIRouter(prefix="/api/keys", tags=["keys"])
+
+
+def _to_out(row: sqlite3.Row) -> ApiKeyOut:
+    return ApiKeyOut(
+        id=row["id"],
+        provider=row["provider"],
+        key_hint=row["key_hint"],
+        base_url=row["base_url"],
+        created_at=row["created_at"],
+    )
 
 
 @router.get("", response_model=list[ApiKeyOut])
@@ -21,56 +32,56 @@ def list_keys(
     conn: sqlite3.Connection = Depends(get_db),
 ) -> list[ApiKeyOut]:
     rows = conn.execute(
-        "SELECT id, provider, key_hint, created_at FROM api_keys "
+        "SELECT id, provider, key_hint, base_url, created_at FROM api_keys "
         "WHERE user_id = ? ORDER BY id",
         (user["id"],),
     ).fetchall()
-    return [
-        ApiKeyOut(id=r["id"], provider=r["provider"], key_hint=r["key_hint"], created_at=r["created_at"])
-        for r in rows
-    ]
+    return [_to_out(r) for r in rows]
 
 
-@router.post("", response_model=ApiKeyOut, status_code=201)
-def create_key(
-    body: ApiKeyIn,
+@router.put("/{provider}", response_model=ApiKeyOut)
+def upsert_key(
+    provider: str,
+    body: ApiKeySetIn,
     user: dict = Depends(get_current_user),
     conn: sqlite3.Connection = Depends(get_db),
 ) -> ApiKeyOut:
-    cur = conn.execute(
-        "INSERT INTO api_keys (user_id, provider, key_encrypted, key_hint) VALUES (?, ?, ?, ?)",
-        (user["id"], body.provider, security.encrypt_key(body.key), security.key_hint(body.key)),
+    conn.execute(
+        "INSERT INTO api_keys (user_id, provider, base_url, key_encrypted, key_hint) "
+        "VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(user_id, provider) DO UPDATE SET "
+        "base_url = excluded.base_url, "
+        "key_encrypted = excluded.key_encrypted, key_hint = excluded.key_hint, "
+        "created_at = datetime('now')",
+        (user["id"], provider, body.base_url, security.encrypt_key(body.key), security.key_hint(body.key)),
     )
     conn.commit()
     row = conn.execute(
-        "SELECT id, provider, key_hint, created_at FROM api_keys WHERE id = ?",
-        (cur.lastrowid,),
+        "SELECT id, provider, key_hint, base_url, created_at FROM api_keys "
+        "WHERE user_id = ? AND provider = ?",
+        (user["id"], provider),
     ).fetchone()
-    return ApiKeyOut(
-        id=row["id"], provider=row["provider"], key_hint=row["key_hint"], created_at=row["created_at"]
-    )
+    return _to_out(row)
 
 
-@router.delete("/{key_id}", status_code=204)
+@router.delete("/{provider}", status_code=204)
 def delete_key(
-    key_id: int,
+    provider: str,
     user: dict = Depends(get_current_user),
     conn: sqlite3.Connection = Depends(get_db),
 ) -> None:
-    row = conn.execute(
-        "SELECT 1 FROM api_keys WHERE id = ? AND user_id = ?", (key_id, user["id"])
-    ).fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="密钥不存在")
-    conn.execute("DELETE FROM api_keys WHERE id = ? AND user_id = ?", (key_id, user["id"]))
+    cur = conn.execute(
+        "DELETE FROM api_keys WHERE user_id = ? AND provider = ?", (user["id"], provider)
+    )
     conn.commit()
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="密钥不存在")
 
 
 def get_plaintext_key(conn: sqlite3.Connection, user_id: int, provider: str) -> str | None:
-    """内部服务函数：取某 provider 最近一条密钥的明文（供 Server 2 注入，无路由暴露）。"""
+    """内部服务函数：取某 provider 的密钥明文（供 Server 2 注入，无路由暴露）。"""
     row = conn.execute(
-        "SELECT key_encrypted FROM api_keys WHERE user_id = ? AND provider = ? "
-        "ORDER BY id DESC LIMIT 1",
+        "SELECT key_encrypted FROM api_keys WHERE user_id = ? AND provider = ?",
         (user_id, provider),
     ).fetchone()
     if row is None:
