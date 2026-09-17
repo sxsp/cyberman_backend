@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse
 
 from .. import config
 from ..deps import get_current_user, get_db
-from ..schemas import PersonaIn, PersonaOut
+from ..schemas import PersonaOut
 
 router = APIRouter(prefix="/api/personas", tags=["personas"])
 
@@ -59,6 +59,14 @@ def _remove_files(user_id: int, persona_id: int) -> None:
     shutil.rmtree(
         config.uploads_dir() / str(user_id) / str(persona_id), ignore_errors=True
     )
+
+
+def _clear_kind(user_id: int, persona_id: int, kind: str) -> None:
+    """删除某类旧文件（重传前清掉，避免不同扩展名残留）。"""
+    directory = config.uploads_dir() / str(user_id) / str(persona_id)
+    if directory.is_dir():
+        for f in directory.glob(f"{kind}.*"):
+            f.unlink(missing_ok=True)
 
 
 @router.get("", response_model=list[PersonaOut])
@@ -113,23 +121,41 @@ def get_persona(
 
 
 @router.put("/{persona_id}", response_model=PersonaOut)
-def update_persona(
+async def update_persona(
     persona_id: int,
-    body: PersonaIn,
+    name: str = Form(...),
+    system_prompt: str = Form(""),
+    label: str = Form(""),
+    ref_text: str = Form(""),
+    is_default: bool = Form(False),
+    image: UploadFile | None = File(None),
+    voice: UploadFile | None = File(None),
     user: dict = Depends(get_current_user),
     conn: sqlite3.Connection = Depends(get_db),
 ) -> PersonaOut:
     _get_owned(conn, user["id"], persona_id)
-    if body.is_default:
+    if is_default:
         conn.execute("UPDATE personas SET is_default = 0 WHERE user_id = ?", (user["id"],))
     conn.execute(
         "UPDATE personas SET name = ?, label = ?, system_prompt = ?, ref_text = ?, "
         "is_default = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?",
         (
-            body.name, body.label, body.system_prompt, body.ref_text,
-            int(body.is_default), persona_id, user["id"],
+            name, label, system_prompt, ref_text,
+            int(is_default), persona_id, user["id"],
         ),
     )
+    if image:
+        _clear_kind(user["id"], persona_id, "image")
+        ref_image = await _save_upload(user["id"], persona_id, image, "image")
+        conn.execute(
+            "UPDATE personas SET ref_image = ? WHERE id = ?", (ref_image, persona_id)
+        )
+    if voice:
+        _clear_kind(user["id"], persona_id, "voice")
+        ref_wav = await _save_upload(user["id"], persona_id, voice, "voice")
+        conn.execute(
+            "UPDATE personas SET ref_wav = ? WHERE id = ?", (ref_wav, persona_id)
+        )
     conn.commit()
     return _to_out(_get_owned(conn, user["id"], persona_id))
 

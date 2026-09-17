@@ -65,7 +65,7 @@ def test_persona_crud(client):
 
     r2 = client.put(
         f"/api/personas/{pid}",
-        json={"name": "塔菲2", "label": "塔菲2", "system_prompt": "x", "is_default": True},
+        data={"name": "塔菲2", "label": "塔菲2", "system_prompt": "x", "is_default": "true"},
         headers=h,
     )
     assert r2.json()["name"] == "塔菲2"
@@ -119,6 +119,33 @@ def test_persona_upload_image_and_voice(client):
 
     # 未登录不能拉肖像
     assert client.get(f"/api/personas/{pid}/image").status_code == 401
+
+
+def test_persona_update_replace_image(client):
+    token = _register(client).json()["access_token"]
+    h = _auth(token)
+    pid = client.post(
+        "/api/personas",
+        data={"name": "塔菲", "system_prompt": "旧人设"},
+        files={"image": ("ref.png", b"\x89PNG\r\n\x1a\n" + b"0" * 16, "image/png")},
+        headers=h,
+    ).json()["id"]
+
+    # 改文本 + 换图
+    r = client.put(
+        f"/api/personas/{pid}",
+        data={"name": "塔菲2", "system_prompt": "新人设", "is_default": "false"},
+        files={"image": ("ref.jpg", b"\xff\xd8\xff\xe0" + b"0" * 16, "image/jpeg")},
+        headers=h,
+    )
+    assert r.status_code == 200
+    assert r.json()["name"] == "塔菲2"
+    assert r.json()["system_prompt"] == "新人设"
+    assert r.json()["has_image"] is True
+
+    img = client.get(f"/api/personas/{pid}/image", headers=h)
+    assert img.status_code == 200
+    assert img.content.startswith(b"\xff\xd8\xff\xe0")  # 新图已替换
 
 
 # ---- API 密钥 ----

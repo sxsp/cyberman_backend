@@ -24,14 +24,6 @@ class UserOut(BaseModel):
     username: str
 
 
-class PersonaIn(BaseModel):
-    name: str = Field(min_length=1, max_length=128)
-    label: str = Field(default="", max_length=128)
-    system_prompt: str = ""
-    ref_text: str = ""
-    is_default: bool = False
-
-
 class PersonaOut(BaseModel):
     id: int
     name: str
